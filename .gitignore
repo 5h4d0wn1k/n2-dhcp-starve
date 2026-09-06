@@ -2,3 +2,9 @@ __pycache__/
 *.pyc
 *.pyo
 .DS_Store
+captures/
+pcap/
+*.pcap
+*.pcapng
+logs/
+reports/

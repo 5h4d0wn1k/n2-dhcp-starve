@@ -1,23 +1,28 @@
-# N2 — DHCP Starvation
+# N2 — DHCP Starvation (Lab / Portfolio)
 
-Exhaust DHCP lease pool to force clients offline.
+DHCP discover engine with a lease-exhaustion state machine, built on a **pure
+standard-library DHCP/BOOTP packet engine** (no scapy dependency for the core).
 
-## Overview
+## What Works
 
-This project implements a DHCP starvation attack that:
-- Sends massive DHCP discover requests with random MACs
-- Exhausts the DHCP server's IP address pool
-- Forces legitimate clients to go offline
-- Detects DHCP exhaustion status
-
-## Features
-
-- **Random MAC generation**: Create thousands of unique MAC addresses
-- **Rate control**: Configurable send rate
-- **Statistics**: Track packets sent and timing
-- **Clean exit**: Graceful shutdown on Ctrl+C
+- **Real BOOTP + DHCP frame construction** (`DHCPDiscover`) — builds genuine
+  Ethernet + IPv4 + UDP + BOOTP(236B) + magic cookie + DHCP options by hand,
+  including a correct IP header checksum.
+- **Real parsing** (`parse_bootp_payload` / `parse_dhcp_payload`) — a built
+  frame round-trips through the parser and yields the right op, xid, chaddr,
+  requested IP, and message type.
+- **Lease-exhaustion state machine** (`DHCPLeaseState`) — offline, tracks how
+  many leases were granted against a simulated pool and flips to `exhausted`
+  once the pool is drained.
+- **Offline loopback harness** (`--harness`) — spins up a `FakeDHCPServer` on a
+  real localhost UDP socket, feeds it real DHCP discover payloads, receives
+  real offer payloads back, and verifies the simulated pool is exhausted.
+- **Live injection** (`--live/--iface`) — real scapy sendp on an interface,
+  gated behind an explicit flag (root required).
 
 ## Installation
+
+Core is stdlib-only. Optional for live injection:
 
 ```bash
 pip install scapy
@@ -26,46 +31,56 @@ pip install scapy
 ## Usage
 
 ```bash
-# Basic starvation
-sudo python3 dhcp_starve.py --interface eth0
+# Offline loopback lease-exhaustion harness (no privileges)
+python3 dhcp_starve.py --harness
 
-# Custom count
-sudo python3 dhcp_starve.py --interface eth0 --count 5000
+# Tune the simulated pool / rounds
+python3 dhcp_starve.py --harness --pool-size 16 --rounds 20
+
+# Live injection on a real interface (root + scapy)
+sudo python3 dhcp_starve.py --live --iface eth0 --count 256
 ```
 
-## Example Output
+## Tests
 
+```bash
+python3 -m unittest discover -s tests
 ```
-=== N2 — DHCP Starvation ===
-Interface: eth0
-Target: 1000 requests
 
-Starting DHCP starvation...
-  Sent 100/1000 DHCP discovers
-  Sent 200/1000 DHCP discovers
-  ...
+## Live Lab Test Plan
 
-=== Starvation Complete ===
-Sent: 1000 packets
-Time: 12.34 seconds
-Rate: 81 packets/sec
-```
+> Authorized own-lab use only. Use documented placeholders (198.51.100.x, 02:... MACs).
+
+1. Build a controlled DHCP lab: a DHCP server on a closed range and no
+   production clients, on an isolated switchport.
+2. Run `sudo python3 dhcp_starve.py --live --iface <lab-iface> --count <pool-size*2>`.
+3. Monitor the DHCP server lease table: the pool should fill with fake CHADDRs.
+4. Confirm no legitimate client on the lab can obtain a lease while exhausted.
+5. Stop the starve; confirm the server reclaims leases after TTL expiry.
+
+## Metrics
+
+- DHCP frame round-trip parse: PASS (7 unit tests)
+- Invalid cookie / short payload rejected with `ValueError`
+- Lease-exhaustion state machine reaches `exhausted=True` once pool is drained
+- Offline loopback harness: exit code `0`
+- No privileges required for harness or tests
 
 ## Legal Disclaimer
 
 **IMPORTANT: Read before use.**
 
-This project is provided for **educational and authorized security testing purposes only**. 
+This project is provided for **educational and authorized security testing purposes only**.
 
 ### Authorization Requirements
 - You MUST have explicit written permission from the network owner before using this tool
-- Unauthorized interception of network communications is illegal under federal and state laws
+- Denial-of-service against systems you do not own is illegal under federal and state laws
 - This tool should ONLY be used on networks you own or have written authorization to test
 
 ### Legal Framework
 - **Computer Fraud and Abuse Act (CFAA)**: Unauthorized access to computer systems is a federal crime
 - **Wiretap Act (18 U.S.C. § 2511)**: Interception of electronic communications without consent is illegal
-- **State Laws**: Many states have additional computer crime and wiretapping statutes
+- **State Laws**: Many states have additional computer crime and denial-of-service statutes
 - **GDPR/CCPA**: Data collection may be subject to privacy regulations
 
 ### Acceptable Use
@@ -75,19 +90,12 @@ This project is provided for **educational and authorized security testing purpo
 - Security education and training
 
 ### Prohibited Use
-- Intercepting communications on networks you do not own
-- Attacking infrastructure without authorization
+- Interfering with networks you do not own
+- Disrupting services without authorization
 - Any activity that violates applicable laws or regulations
-- Commercial use without proper licensing
 
 ### No Warranty
 This software is provided "AS IS" without warranty of any kind. The author is not responsible for any misuse or damage caused by this software.
-
-### Responsible Disclosure
-If you discover vulnerabilities using this tool, follow responsible disclosure practices:
-1. Report to the vendor/owner privately
-2. Allow reasonable time for remediation
-3. Do not exploit beyond proof of concept
 
 ## License
 
